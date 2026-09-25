@@ -6,9 +6,21 @@
 //  Copyright © 2023 izual. All rights reserved.
 //
 
+#if __has_include(<Masonry/Masonry.h>)
 #import <Masonry/Masonry.h>
+#elif __has_include(<Masonry.h>)
+#import <Masonry.h>
+#else
+#import "../../Pods/Masonry/Masonry/Masonry.h"
+#endif
 #import <MJExtension.h>
-#import <ReactiveObjC/ReactiveObjC.h>
+#if __has_include(<ReactiveObjC/RACEXTScope.h>)
+#import <ReactiveObjC/RACEXTScope.h>
+#elif __has_include(<RACEXTScope.h>)
+#import <RACEXTScope.h>
+#else
+#import "../../Pods/ReactiveObjC/ReactiveObjC/extobjc/RACEXTScope.h"
+#endif
 
 #import "MMMacro.h"
 #import "MMMake.h"

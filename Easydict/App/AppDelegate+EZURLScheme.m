@@ -7,7 +7,11 @@
 //
 
 #import "AppDelegate+EZURLScheme.h"
+#if __has_include(<JLRoutes.h>)
 #import <JLRoutes.h>
+#else
+#import "../../Pods/JLRoutes/JLRoutes/JLRoutes.h"
+#endif
 #import "EZWindowManager.h"
 #import "EZSchemeParser.h"
 

@@ -98,7 +98,6 @@ extension GoogleService {
                 let googleFromString = responseArray[2] as? String ?? ""
                 let googleFrom = languageEnum(fromCode: googleFromString)
                 let googleTo = to
-                let googleFromAccent = googleFrom == .english ? englishTTSAccent() : nil
 
                 result.raw = responseObject
                 result.fromSpeakURL = nonEnglishAudioURL(
@@ -110,123 +109,16 @@ extension GoogleService {
                     sign: signText ?? ""
                 )
 
-                var wordResult: EZTranslateWordResult?
+                applyWebAppWordResult(
+                    responseArray,
+                    text: text,
+                    googleFrom: googleFrom,
+                    googleTo: googleTo,
+                    result: result
+                )
+                applyWebAppNormalResult(responseArray, googleTo: googleTo, result: result)
 
-                // 英文查词 中文查词
-                if let phoneticArray = responseArray[0] as? [Any],
-                   phoneticArray.count > 1,
-                   let phonetics = phoneticArray[1] as? [Any],
-                   phonetics.count > 3,
-                   let phoneticText = phonetics[3] as? String {
-                    wordResult = EZTranslateWordResult()
-
-                    let phonetic = EZWordPhonetic()
-                    if googleFrom == .english {
-                        let accent = googleFromAccent ?? englishTTSAccent()
-                        phonetic.accent = accent
-                        phonetic.name = NSLocalizedString(
-                            accent == "uk" ? "uk_phonetic" : "us_phonetic",
-                            comment: ""
-                        )
-                    } else {
-                        phonetic.name = NSLocalizedString("chinese_phonetic", comment: "")
-                    }
-
-                    phonetic.value = phoneticText
-                    phonetic.speakURL = googleFrom == .english ? nil : result.fromSpeakURL
-                    phonetic.language = result.queryFromLanguage
-                    phonetic.word = text
-                    wordResult?.phonetics = [phonetic]
-                }
-
-                if let dictResult = responseArray[1] as? [[Any]] {
-                    if wordResult == nil {
-                        wordResult = EZTranslateWordResult()
-                    }
-
-                    if googleFrom == .english,
-                       googleTo == .simplifiedChinese || googleTo == .traditionalChinese {
-                        // 英文查词
-                        var parts: [EZTranslatePart] = []
-                        for obj in dictResult {
-                            guard obj.count >= 2,
-                                  let part = obj[0] as? String,
-                                  let meanings = obj[1] as? [Any]
-                            else { continue }
-
-                            let partObj = EZTranslatePart()
-                            partObj.part = part
-                            partObj.means = meanings.compactMap { $0 as? String }
-                            if !partObj.means.isEmpty {
-                                parts.append(partObj)
-                            }
-                        }
-                        if !parts.isEmpty {
-                            wordResult?.parts = parts
-                        }
-                    } else if googleFrom == .simplifiedChinese
-                        || googleFrom == .traditionalChinese, googleTo == .english {
-                        // 中文查词
-                        var simpleWords: [EZTranslateSimpleWord] = []
-                        for obj in dictResult {
-                            guard obj.count >= 3,
-                                  let part = obj[0] as? String,
-                                  let partWords = obj[2] as? [[Any]]
-                            else { continue }
-
-                            for wordObj in partWords {
-                                guard wordObj.count >= 2,
-                                      let wordStr = wordObj[0] as? String,
-                                      let means = wordObj[1] as? [Any]
-                                else { continue }
-
-                                let simpleWord = EZTranslateSimpleWord()
-                                simpleWord.word = wordStr
-                                simpleWord.means = means.compactMap { $0 as? String }
-                                simpleWord.part = part
-                                simpleWords.append(simpleWord)
-                            }
-                        }
-                        if !simpleWords.isEmpty {
-                            wordResult?.simpleWords = simpleWords
-                        }
-                    }
-                }
-
-                // Avoid displaying too long phonetic symbols.
-                if wordResult?.parts != nil || wordResult?.simpleWords != nil || text.count <= 4 {
-                    result.wordResult = wordResult
-                }
-
-                // 普通释义
-                if let normalArray = responseArray[0] as? [[Any]] {
-                    let normalResults = normalArray.compactMap { obj -> String? in
-                        guard let first = obj.first as? String else { return nil }
-                        return first.trim()
-                    }.filter { !$0.isEmpty }
-
-                    if !normalResults.isEmpty {
-                        result.translatedResults = normalResults
-
-                        let mergeString =
-                            String.combined(
-                                components: normalResults,
-                                separatedBy: "\n"
-                            ) ?? ""
-                        let signTo =
-                            signFunction.call(withArguments: [mergeString])?.toString() ?? ""
-                        result.toSpeakURL = nonEnglishAudioURL(
-                            withText: mergeString,
-                            language: ttsLanguageCode(
-                                for: googleTo,
-                                fallbackCode: languageCode(for: googleTo)
-                            ),
-                            sign: signTo
-                        )
-                    }
-                }
-
-                if result.wordResult != nil || result.translatedResults != nil {
+                if hasTranslateResult(result) {
                     completion(result, nil)
                     return
                 }
@@ -234,6 +126,167 @@ extension GoogleService {
 
             gtxTranslate(text, from: from, to: to, completion: completion)
         }
+    }
+
+    private func applyWebAppWordResult(
+        _ responseArray: [Any],
+        text: String,
+        googleFrom: Language,
+        googleTo: Language,
+        result: QueryResult
+    ) {
+        var wordResult = makeWebAppPhoneticResult(
+            responseArray,
+            text: text,
+            googleFrom: googleFrom,
+            result: result
+        )
+        applyWebAppDictionaryResult(
+            responseArray,
+            googleFrom: googleFrom,
+            googleTo: googleTo,
+            wordResult: &wordResult
+        )
+
+        // Avoid displaying too long phonetic symbols.
+        if wordResult?.parts != nil || wordResult?.simpleWords != nil || text.count <= 4 {
+            result.wordResult = wordResult
+        }
+    }
+
+    private func makeWebAppPhoneticResult(
+        _ responseArray: [Any],
+        text: String,
+        googleFrom: Language,
+        result: QueryResult
+    )
+        -> EZTranslateWordResult? {
+        guard let phoneticArray = responseArray[0] as? [Any],
+              phoneticArray.count > 1,
+              let phonetics = phoneticArray[1] as? [Any],
+              phonetics.count > 3,
+              let phoneticText = phonetics[3] as? String
+        else { return nil }
+
+        let wordResult = EZTranslateWordResult()
+        let phonetic = EZWordPhonetic()
+        if googleFrom == .english {
+            let accent = englishTTSAccent()
+            phonetic.accent = accent
+            phonetic.name = NSLocalizedString(
+                accent == "uk" ? "uk_phonetic" : "us_phonetic",
+                comment: ""
+            )
+        } else {
+            phonetic.name = NSLocalizedString("chinese_phonetic", comment: "")
+        }
+
+        phonetic.value = phoneticText
+        phonetic.speakURL = googleFrom == .english ? nil : result.fromSpeakURL
+        phonetic.language = result.queryFromLanguage
+        phonetic.word = text
+        wordResult.phonetics = [phonetic]
+
+        return wordResult
+    }
+
+    private func applyWebAppDictionaryResult(
+        _ responseArray: [Any],
+        googleFrom: Language,
+        googleTo: Language,
+        wordResult: inout EZTranslateWordResult?
+    ) {
+        guard let dictResult = responseArray[1] as? [[Any]] else { return }
+
+        if wordResult == nil {
+            wordResult = EZTranslateWordResult()
+        }
+
+        if googleFrom == .english,
+           googleTo == .simplifiedChinese || googleTo == .traditionalChinese {
+            wordResult?.parts = makeWebAppEnglishParts(dictResult)
+        } else if googleFrom == .simplifiedChinese
+            || googleFrom == .traditionalChinese, googleTo == .english {
+            wordResult?.simpleWords = makeWebAppChineseSimpleWords(dictResult)
+        }
+    }
+
+    private func makeWebAppEnglishParts(_ dictResult: [[Any]]) -> [EZTranslatePart]? {
+        var parts: [EZTranslatePart] = []
+        for obj in dictResult {
+            guard obj.count >= 2,
+                  let part = obj[0] as? String,
+                  let meanings = obj[1] as? [Any]
+            else { continue }
+
+            let partObj = EZTranslatePart()
+            partObj.part = part
+            partObj.means = meanings.compactMap { $0 as? String }
+            if !partObj.means.isEmpty {
+                parts.append(partObj)
+            }
+        }
+        return parts.isEmpty ? nil : parts
+    }
+
+    private func makeWebAppChineseSimpleWords(_ dictResult: [[Any]]) -> [EZTranslateSimpleWord]? {
+        var simpleWords: [EZTranslateSimpleWord] = []
+        for obj in dictResult {
+            guard obj.count >= 3,
+                  let part = obj[0] as? String,
+                  let partWords = obj[2] as? [[Any]]
+            else { continue }
+
+            for wordObj in partWords {
+                guard wordObj.count >= 2,
+                      let wordStr = wordObj[0] as? String,
+                      let means = wordObj[1] as? [Any]
+                else { continue }
+
+                let simpleWord = EZTranslateSimpleWord()
+                simpleWord.word = wordStr
+                simpleWord.means = means.compactMap { $0 as? String }
+                simpleWord.part = part
+                simpleWords.append(simpleWord)
+            }
+        }
+        return simpleWords.isEmpty ? nil : simpleWords
+    }
+
+    private func applyWebAppNormalResult(
+        _ responseArray: [Any],
+        googleTo: Language,
+        result: QueryResult
+    ) {
+        guard let normalArray = responseArray[0] as? [[Any]] else { return }
+
+        let normalResults = normalArray.compactMap { obj -> String? in
+            guard let first = obj.first as? String else { return nil }
+            return first.trim()
+        }.filter { !$0.isEmpty }
+
+        guard !normalResults.isEmpty else { return }
+
+        result.translatedResults = normalResults
+
+        let mergeString =
+            String.combined(
+                components: normalResults,
+                separatedBy: "\n"
+            ) ?? ""
+        let signTo = signFunction.call(withArguments: [mergeString])?.toString() ?? ""
+        result.toSpeakURL = nonEnglishAudioURL(
+            withText: mergeString,
+            language: ttsLanguageCode(
+                for: googleTo,
+                fallbackCode: languageCode(for: googleTo)
+            ),
+            sign: signTo
+        )
+    }
+
+    private func hasTranslateResult(_ result: QueryResult) -> Bool {
+        result.wordResult != nil || result.translatedResults != nil
     }
 
     // MARK: - WebApp Network Request
