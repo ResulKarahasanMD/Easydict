@@ -55,6 +55,9 @@ extension Defaults.Keys {
     static let autoQueryPastedText = Key<Bool>(
         "EZConfiguration_kAutoQueryPastedTextKey", default: false
     )
+    static let autoQueryWhenTextChanged = Key<Bool>(
+        "EZConfiguration_kAutoQueryWhenTextChangedKey", default: false
+    )
     static let autoCopyOCRText = Key<Bool>("EZConfiguration_kAutoCopyOCRTextKey", default: false)
     static let autoCopySelectedText = Key<Bool>(
         "EZConfiguration_kAutoCopySelectedTextKey", default: false
@@ -153,6 +156,9 @@ extension Defaults.Keys {
     )
     static var enableHTTPServer = Key<Bool>("enableHTTPServer", default: false)
     static var httpPort = Key<String>("httpPort", default: "8080")
+
+    static var enableVocabularyNotebook = Key<Bool>("enableVocabularyNotebook", default: false)
+    static var vocabularyNotebookDirectory = Key<String>("vocabularyNotebookDirectory", default: "")
 
     static var enableAppleOfflineTranslation = Key<Bool>(
         "enableAppleOfflineTranslation", default: false
